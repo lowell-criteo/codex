@@ -354,6 +354,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
             model: Some("o3".to_string()),
             effort: Some(Some(ReasoningEffort::High)),
             summary: Some(ReasoningSummary::Detailed),
+            web_search_mode: None,
             collaboration_mode: None,
             personality: None,
         })
@@ -429,6 +430,7 @@ async fn override_before_first_turn_emits_environment_context() -> anyhow::Resul
             model: Some("gpt-5.1-codex".to_string()),
             effort: Some(Some(ReasoningEffort::Low)),
             summary: None,
+            web_search_mode: None,
             collaboration_mode: Some(collaboration_mode),
             personality: None,
         })

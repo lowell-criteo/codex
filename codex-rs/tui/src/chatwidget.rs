@@ -101,6 +101,7 @@ use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::Settings;
+use codex_protocol::config_types::WebSearchMode;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::local_image_label_text;
@@ -3005,6 +3006,16 @@ impl ChatWidget {
             SlashCommand::Status => {
                 self.add_status_output();
             }
+            SlashCommand::Search => {
+                if !self.is_session_configured() {
+                    self.add_info_message(
+                        "Web search is unavailable until startup completes.".to_string(),
+                        None,
+                    );
+                    return;
+                }
+                self.toggle_web_search_mode();
+            }
             SlashCommand::Ps => {
                 self.add_ps_output();
             }
@@ -3087,6 +3098,29 @@ impl ChatWidget {
 
         let trimmed = args.trim();
         match cmd {
+            SlashCommand::Search if !trimmed.is_empty() => {
+                if !self.is_session_configured() {
+                    self.add_info_message(
+                        "Web search is unavailable until startup completes.".to_string(),
+                        None,
+                    );
+                    return;
+                }
+                let lowered = trimmed.to_ascii_lowercase();
+                match lowered.as_str() {
+                    "on" | "enable" | "enabled" => {
+                        self.set_web_search_mode(WebSearchMode::Live);
+                    }
+                    "off" | "disable" | "disabled" => {
+                        self.set_web_search_mode(WebSearchMode::Disabled);
+                    }
+                    _ => {
+                        self.add_error_message(format!(
+                            "Unknown /search option `{trimmed}`. Use `/search`, `/search on`, or `/search off`."
+                        ));
+                    }
+                }
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 let Some((prepared_args, _prepared_elements)) =
                     self.bottom_pane.prepare_inline_args_submission(false)
@@ -3901,6 +3935,7 @@ impl ChatWidget {
                 model: Some(switch_model.clone()),
                 effort: Some(Some(default_effort)),
                 summary: None,
+                web_search_mode: None,
                 collaboration_mode: None,
                 personality: None,
             }));
@@ -4020,6 +4055,7 @@ impl ChatWidget {
                         model: None,
                         effort: None,
                         summary: None,
+                        web_search_mode: None,
                         collaboration_mode: None,
                         windows_sandbox_level: None,
                         personality: Some(personality),
@@ -4292,6 +4328,7 @@ impl ChatWidget {
                 model: Some(model_for_action.clone()),
                 effort: Some(effort_for_action),
                 summary: None,
+                web_search_mode: None,
                 collaboration_mode: None,
                 personality: None,
             }));
@@ -4466,6 +4503,7 @@ impl ChatWidget {
                 model: Some(model.clone()),
                 effort: Some(effort),
                 summary: None,
+                web_search_mode: None,
                 collaboration_mode: None,
                 personality: None,
             }));
@@ -4655,6 +4693,7 @@ impl ChatWidget {
                 model: None,
                 effort: None,
                 summary: None,
+                web_search_mode: None,
                 collaboration_mode: None,
                 personality: None,
             }));
@@ -5309,6 +5348,62 @@ impl ChatWidget {
     /// Set the personality in the widget's config copy.
     pub(crate) fn set_personality(&mut self, personality: Personality) {
         self.config.personality = Some(personality);
+    }
+
+    fn toggle_web_search_mode(&mut self) {
+        let next_mode = if matches!(self.effective_web_search_mode(), WebSearchMode::Disabled) {
+            WebSearchMode::Live
+        } else {
+            WebSearchMode::Disabled
+        };
+        self.set_web_search_mode(next_mode);
+    }
+
+    fn set_web_search_mode(&mut self, web_search_mode: WebSearchMode) {
+        let current = self.effective_web_search_mode();
+        if current == web_search_mode {
+            let state = Self::web_search_mode_label(web_search_mode);
+            self.add_info_message(format!("Web search is already {state}."), None);
+            return;
+        }
+
+        self.app_event_tx
+            .send(AppEvent::CodexOp(Op::OverrideTurnContext {
+                cwd: None,
+                approval_policy: None,
+                sandbox_policy: None,
+                windows_sandbox_level: None,
+                model: None,
+                effort: None,
+                summary: None,
+                web_search_mode: Some(web_search_mode),
+                collaboration_mode: None,
+                personality: None,
+            }));
+        self.config.web_search_mode = Some(web_search_mode);
+        let state = Self::web_search_mode_label(web_search_mode);
+        self.add_info_message(format!("Web search {state}."), None);
+    }
+
+    fn effective_web_search_mode(&self) -> WebSearchMode {
+        self.config.web_search_mode.unwrap_or_else(|| {
+            if matches!(
+                self.config.sandbox_policy.get(),
+                SandboxPolicy::DangerFullAccess
+            ) {
+                WebSearchMode::Live
+            } else {
+                WebSearchMode::Cached
+            }
+        })
+    }
+
+    fn web_search_mode_label(web_search_mode: WebSearchMode) -> &'static str {
+        match web_search_mode {
+            WebSearchMode::Disabled => "disabled",
+            WebSearchMode::Cached => "enabled (cached mode)",
+            WebSearchMode::Live => "enabled (live mode)",
+        }
     }
 
     /// Set the model in the widget's config copy and stored collaboration mode.

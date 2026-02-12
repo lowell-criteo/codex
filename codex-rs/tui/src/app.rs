@@ -845,6 +845,7 @@ impl App {
 
         self.reset_for_thread_switch(tui)?;
         self.replay_thread_snapshot(snapshot);
+        self.update_window_title(tui, self.chat_widget.thread_name().as_deref());
         self.drain_active_thread_events(tui).await?;
 
         Ok(())
@@ -878,7 +879,10 @@ impl App {
         let mut disconnected = false;
         loop {
             match rx.try_recv() {
-                Ok(event) => self.handle_codex_event_now(event),
+                Ok(event) => {
+                    self.maybe_update_window_title_from_event(tui, &event.msg);
+                    self.handle_codex_event_now(event);
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     disconnected = true;
@@ -1770,6 +1774,7 @@ impl App {
                                         model: None,
                                         effort: None,
                                         summary: None,
+                                        web_search_mode: None,
                                         collaboration_mode: None,
                                         personality: None,
                                     },
@@ -1792,6 +1797,7 @@ impl App {
                                         model: None,
                                         effort: None,
                                         summary: None,
+                                        web_search_mode: None,
                                         collaboration_mode: None,
                                         personality: None,
                                     },
@@ -2019,6 +2025,7 @@ impl App {
                                 model: None,
                                 effort: None,
                                 summary: None,
+                                web_search_mode: None,
                                 collaboration_mode: None,
                                 personality: None,
                             }));
@@ -2225,11 +2232,30 @@ impl App {
     }
 
     fn handle_active_thread_event(&mut self, tui: &mut tui::Tui, event: Event) -> Result<()> {
+        self.maybe_update_window_title_from_event(tui, &event.msg);
         self.handle_codex_event_now(event);
         if self.backtrack_render_pending {
             tui.frame_requester().schedule_frame();
         }
         Ok(())
+    }
+
+    fn maybe_update_window_title_from_event(&mut self, tui: &mut tui::Tui, event: &EventMsg) {
+        let thread_name = match event {
+            EventMsg::SessionConfigured(session) => session.thread_name.as_deref(),
+            EventMsg::ThreadNameUpdated(update) => update.thread_name.as_deref(),
+            _ => return,
+        };
+
+        self.update_window_title(tui, thread_name);
+    }
+
+    fn update_window_title(&mut self, tui: &mut tui::Tui, thread_name: Option<&str>) {
+        let thread_name = thread_name.map(str::trim).filter(|name| !name.is_empty());
+        let title = thread_name
+            .map(|name| format!("Codex - {name}"))
+            .unwrap_or_else(|| "Codex".to_string());
+        tui.set_window_title(&title);
     }
 
     async fn handle_thread_created(&mut self, thread_id: ThreadId) -> Result<()> {

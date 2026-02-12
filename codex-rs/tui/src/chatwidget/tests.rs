@@ -68,6 +68,7 @@ use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::Settings;
+use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::openai_models::default_input_modalities;
@@ -968,6 +969,23 @@ fn lines_to_single_string(lines: &[ratatui::text::Line<'static>]) -> String {
         s.push('\n');
     }
     s
+}
+
+fn next_web_search_override_mode(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+) -> Option<WebSearchMode> {
+    loop {
+        match rx.try_recv() {
+            Ok(AppEvent::CodexOp(Op::OverrideTurnContext {
+                web_search_mode, ..
+            })) => return web_search_mode,
+            Ok(_) => continue,
+            Err(TryRecvError::Empty) => {
+                panic!("expected Op::OverrideTurnContext with web_search_mode")
+            }
+            Err(TryRecvError::Disconnected) => panic!("expected app event but channel closed"),
+        }
+    }
 }
 
 fn make_token_info(total_tokens: i64, context_window: i64) -> TokenUsageInfo {
@@ -2695,6 +2713,59 @@ async fn slash_exit_requests_exit() {
     chat.dispatch_command(SlashCommand::Exit);
 
     assert_matches!(rx.try_recv(), Ok(AppEvent::Exit(ExitMode::ShutdownFirst)));
+}
+
+#[tokio::test]
+async fn slash_search_toggles_between_disabled_and_live() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.config.web_search_mode = Some(WebSearchMode::Live);
+
+    chat.dispatch_command(SlashCommand::Search);
+    assert_eq!(
+        next_web_search_override_mode(&mut rx),
+        Some(WebSearchMode::Disabled)
+    );
+    assert_eq!(chat.config.web_search_mode, Some(WebSearchMode::Disabled));
+    let disabled_cells = drain_insert_history(&mut rx);
+    assert_eq!(disabled_cells.len(), 1);
+    assert!(
+        lines_to_single_string(&disabled_cells[0]).contains("Web search disabled."),
+        "expected disabled message"
+    );
+
+    chat.dispatch_command(SlashCommand::Search);
+    assert_eq!(
+        next_web_search_override_mode(&mut rx),
+        Some(WebSearchMode::Live)
+    );
+    assert_eq!(chat.config.web_search_mode, Some(WebSearchMode::Live));
+    let enabled_cells = drain_insert_history(&mut rx);
+    assert_eq!(enabled_cells.len(), 1);
+    assert!(
+        lines_to_single_string(&enabled_cells[0]).contains("Web search enabled (live mode)."),
+        "expected enabled message"
+    );
+}
+
+#[tokio::test]
+async fn slash_search_with_args_sets_explicit_mode() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(SlashCommand::Search, "on".to_string(), Vec::new());
+    assert_eq!(
+        next_web_search_override_mode(&mut rx),
+        Some(WebSearchMode::Live)
+    );
+    assert_eq!(chat.config.web_search_mode, Some(WebSearchMode::Live));
+
+    chat.dispatch_command_with_args(SlashCommand::Search, "off".to_string(), Vec::new());
+    assert_eq!(
+        next_web_search_override_mode(&mut rx),
+        Some(WebSearchMode::Disabled)
+    );
+    assert_eq!(chat.config.web_search_mode, Some(WebSearchMode::Disabled));
 }
 
 #[tokio::test]

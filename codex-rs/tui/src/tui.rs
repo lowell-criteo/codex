@@ -124,6 +124,33 @@ impl Command for DisableAlternateScroll {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetWindowTitle {
+    title: String,
+}
+
+impl Command for SetWindowTitle {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\x1b]0;{}\x07", self.title)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<()> {
+        Err(std::io::Error::other(
+            "tried to execute SetWindowTitle using WinAPI; use ANSI instead",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+fn sanitize_window_title(title: &str) -> String {
+    title.chars().filter(|ch| !ch.is_control()).collect()
+}
+
 fn restore_common(should_disable_raw_mode: bool) -> Result<()> {
     // Pop may fail on platforms that didn't support the push; ignore errors.
     let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
@@ -291,6 +318,11 @@ impl Tui {
 
     pub fn set_notification_method(&mut self, method: NotificationMethod) {
         self.notification_backend = Some(detect_backend(method));
+    }
+
+    pub fn set_window_title(&mut self, title: &str) {
+        let title = sanitize_window_title(title);
+        let _ = execute!(stdout(), SetWindowTitle { title });
     }
 
     pub fn frame_requester(&self) -> FrameRequester {

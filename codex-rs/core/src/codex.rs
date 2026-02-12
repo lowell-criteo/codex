@@ -355,6 +355,7 @@ impl Codex {
             provider: config.model_provider.clone(),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
+            web_search_mode: config.web_search_mode,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
             personality: config.personality,
@@ -559,6 +560,7 @@ pub(crate) struct SessionConfiguration {
 
     collaboration_mode: CollaborationMode,
     model_reasoning_summary: ReasoningSummaryConfig,
+    web_search_mode: Option<WebSearchMode>,
 
     /// Developer instructions that supplement the base instructions.
     developer_instructions: Option<String>,
@@ -627,6 +629,9 @@ impl SessionConfiguration {
         if let Some(summary) = updates.reasoning_summary {
             next_configuration.model_reasoning_summary = summary;
         }
+        if let Some(web_search_mode) = updates.web_search_mode {
+            next_configuration.web_search_mode = Some(web_search_mode);
+        }
         if let Some(personality) = updates.personality {
             next_configuration.personality = Some(personality);
         }
@@ -654,6 +659,7 @@ pub(crate) struct SessionSettingsUpdate {
     pub(crate) windows_sandbox_level: Option<WindowsSandboxLevel>,
     pub(crate) collaboration_mode: Option<CollaborationMode>,
     pub(crate) reasoning_summary: Option<ReasoningSummaryConfig>,
+    pub(crate) web_search_mode: Option<WebSearchMode>,
     pub(crate) final_output_json_schema: Option<Option<Value>>,
     pub(crate) personality: Option<Personality>,
 }
@@ -668,8 +674,11 @@ impl Session {
             session_configuration.collaboration_mode.reasoning_effort();
         per_turn_config.model_reasoning_summary = session_configuration.model_reasoning_summary;
         per_turn_config.personality = session_configuration.personality;
+        let explicit_web_search_mode = session_configuration
+            .web_search_mode
+            .or(per_turn_config.web_search_mode);
         per_turn_config.web_search_mode = Some(resolve_web_search_mode_for_turn(
-            per_turn_config.web_search_mode,
+            explicit_web_search_mode,
             session_configuration.provider.is_azure_responses_endpoint(),
             session_configuration.sandbox_policy.get(),
         ));
@@ -2446,6 +2455,7 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
                 model,
                 effort,
                 summary,
+                web_search_mode,
                 collaboration_mode,
                 personality,
             } => {
@@ -2469,6 +2479,7 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
                         windows_sandbox_level,
                         collaboration_mode: Some(collaboration_mode),
                         reasoning_summary: summary,
+                        web_search_mode,
                         personality,
                         ..Default::default()
                     },
@@ -2680,6 +2691,7 @@ mod handlers {
                         windows_sandbox_level: None,
                         collaboration_mode,
                         reasoning_summary: Some(summary),
+                        web_search_mode: None,
                         final_output_json_schema: Some(final_output_json_schema),
                         personality,
                     },
@@ -5084,6 +5096,7 @@ mod tests {
             provider: config.model_provider.clone(),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
+            web_search_mode: config.web_search_mode,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions: config.user_instructions.clone(),
             personality: config.personality,
@@ -5167,6 +5180,7 @@ mod tests {
             provider: config.model_provider.clone(),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
+            web_search_mode: config.web_search_mode,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions: config.user_instructions.clone(),
             personality: config.personality,
@@ -5437,6 +5451,7 @@ mod tests {
             provider: config.model_provider.clone(),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
+            web_search_mode: config.web_search_mode,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions: config.user_instructions.clone(),
             personality: config.personality,
@@ -5557,6 +5572,7 @@ mod tests {
             provider: config.model_provider.clone(),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
+            web_search_mode: config.web_search_mode,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions: config.user_instructions.clone(),
             personality: config.personality,
